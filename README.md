@@ -12,6 +12,7 @@ Metrics support coming soon!
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/jinzhu/gorm"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
 	_ "github.com/joho/godotenv/autoload"
 	"go.opentelemetry.io/otel/api/global"
 	"go.opentelemetry.io/otel/exporter/trace/jaeger"
@@ -34,7 +36,7 @@ import (
 type user struct {
 	ID        uint      `gorm:"primary_key" json:"id"`
 	FirstName string    `json:"firstName"`
-	LastiName string    `json:"lastName"`
+	LastName  string    `json:"lastName"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -56,7 +58,7 @@ func readBody(bodyreader io.ReadCloser) (data []byte, err error) {
 func initTracer() func() {
 	//Create Jaeger exporter
 	exporter, err := jaeger.NewExporter(
-		jaeger.WithCollectorEndpoint(fmt.Sprintf("https://%s/api/traces", os.Getenv("JAEGER_HOST"))),
+		jaeger.WithCollectorEndpoint(fmt.Sprintf("http://%s:14268/api/traces", os.Getenv("JAEGER_HOST"))),
 		jaeger.WithProcess(jaeger.Process{
 			ServiceName: "go-otel-gorm",
 		}),
@@ -85,29 +87,33 @@ func main() {
 	defer fn()
 
 	// Connect to database
-	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True",
-		os.Getenv("DB_USER"),
-		os.Getenv("DB_PASS"),
+	connString := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s",
 		os.Getenv("DB_HOST"),
 		os.Getenv("DB_PORT"),
+		os.Getenv("DB_USER"),
 		os.Getenv("DB_NAME"),
+		os.Getenv("DB_PASS"),
+		os.Getenv("DB_SSLMODE"),
 	)
-	db, err := gorm.Open("mysql", dsn)
+	db, err := gorm.Open("postgres", connString)
 	if err != nil {
 		panic(err)
 	}
 
 	//Register callbacks for GORM, while also passing in config Opts
-	otgorm.RegisterCallbacks(db, global.TraceProvider().Tracer("component-gorm"), otgorm.Query(true))
+	otgorm.RegisterCallbacks(db, global.TraceProvider().Tracer("component-gorm"), otgorm.Query(true), otgorm.AllowRoot(true))
 
 	//Run migration and create a record
 	db.AutoMigrate(user{})
 	newUser := user{
 		FirstName: "John",
-		LastiName: "Smith",
+		LastName:  "Smith",
 	}
-	err = db.Create(&newUser).Error
+	//Since this first DB call is outside of a parent,
+	//lets set up empty context and the DB client with that context
+	ctx := context.Background()
+	orm := otgorm.WithContext(ctx, db)
+	err = orm.Create(&newUser).Error
 	if err != nil {
 		log.Print(err)
 	}
