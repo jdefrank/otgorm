@@ -134,18 +134,6 @@ func (c *callbacks) startTrace(ctx context.Context, scope *gorm.Scope, operation
 		ctx, span = c.tracer.Start(ctx, fmt.Sprintf("gorm:%s", operation), trace.ChildOf(parentSpan.SpanContext()))
 	}
 
-	attributes := c.defaultAttributes
-
-	if c.table {
-		attributes = append(attributes, CreateSpanAttribute("gorm.table", scope.TableName()))
-	}
-
-	if c.query {
-		attributes = append(attributes, CreateSpanAttribute("gorm.query", scope.SQL))
-	}
-
-	span.SetAttributes(attributes...)
-
 	scope.Set(spanScopeKey, span)
 
 	return ctx
@@ -161,7 +149,17 @@ func (c *callbacks) endTrace(scope *gorm.Scope) {
 	if !ok {
 		return
 	}
+	attributes := c.defaultAttributes
 
+	if c.table {
+		attributes = append(attributes, CreateSpanAttribute("gorm.table", scope.TableName()))
+	}
+
+	if c.query {
+		attributes = append(attributes, CreateSpanAttribute("gorm.query", scope.SQL))
+	}
+
+	span.SetAttributes(attributes...)
 	var code codes.Code
 	if scope.HasError() {
 		err := scope.DB().Error
