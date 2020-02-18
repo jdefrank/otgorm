@@ -75,6 +75,17 @@ func readBody(bodyreader io.ReadCloser) (data []byte, err error) {
 	return body, nil
 }
 
+func httpTraceWrapper(h http.Handler) http.Handler {
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		t := global.TraceProvider().Tracer("component-http")
+		ctx, span := t.Start(r.Context(), r.URL.Path)
+		r = r.WithContext(ctx)
+		h.ServeHTTP(w, r)
+		span.End()
+	}
+	return http.HandlerFunc(fn)
+}
+
 // NOTE: I've found that if you'd like to separate services in the Jaeger UI,
 // you'll need to create multiple exporters which in turn will show you different colors
 // per service.
@@ -124,9 +135,9 @@ func main() {
 	}
 
 	//Register callbacks for GORM, while also passing in config Opts
-	otgorm.RegisterCallbacks(db, 
-	global.TraceProvider().Tracer("component-gorm"), 
-	otgorm.Query(true), 
+	otgorm.RegisterCallbacks(db,
+	global.TraceProvider().Tracer("component-gorm"),
+	otgorm.Query(true),
 	otgorm.AllowRoot(true)
 	)
 
@@ -171,7 +182,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		return
 	})
-	http.ListenAndServe(":3000", r)
+	http.ListenAndServe(":3000", httpTraceWrapper(r))
 }
 ```
 
