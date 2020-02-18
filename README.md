@@ -8,6 +8,29 @@ Metrics support coming soon!
 
 ## Example Usage ##
 
+Make sure you have the following:
+- Docker
+- Go 1.13
+- cURL or Postman for testing
+
+Run the following commands to create the testing environment:
+- `docker run -d -p 5432:5432 -e POSTGRES_USER=testuser -e POSTGRES_PASSWORD=password! -e POSTGRES_DB=test --name postgres postgres:alpine`
+- `docker run -d --name jaeger -e COLLECTOR_ZIPKIN_HTTP_PORT=9411 -p 5775:5775/udp -p 6831:6831/udp -p 6832:6832/udp -p 5778:5778 -p 16686:16686 -p 14268:14268 -p 14250:14250 -p 9411:9411 jaegertracing/all-in-one:1.16`
+
+### .env File ###
+
+```
+JAEGER_HOST=127.0.0.1
+DB_USER=testuser
+DB_PASS=password!
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_NAME=test
+DB_SSLMODE=disable
+```
+
+### Example App ###
+
 ```golang
 package main
 
