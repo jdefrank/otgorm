@@ -8,8 +8,36 @@ import (
 
 	"github.com/jinzhu/gorm"
 	"go.opentelemetry.io/otel/api/core"
+	"go.opentelemetry.io/otel/api/global"
 	"go.opentelemetry.io/otel/api/trace"
 )
+
+//Attributes that may or may not be added to a span based on Options used
+const (
+	TableKey = core.Key("gorm.table") //The table the GORM query is acting upon
+	QueryKey = core.Key("gorm.query") //The GORM query itself
+)
+
+type callbacks struct {
+	//Allow otgorm to create root spans in the absence of a parent span.
+	//Default is to not allow root spans.
+	allowRoot bool
+
+	//Record the DB query as a KeyValue onto the span where the DB is called
+	query bool
+
+	//Record the table that the sql query is acting on
+	table bool
+
+	//List of default attributes to include onto the span for DB calls
+	defaultAttributes []core.KeyValue
+
+	//tracer creates spans. This is required
+	tracer trace.Tracer
+
+	//List of default options spans will start with
+	spanStartOptions []trace.StartOption
+}
 
 //Gorm scope keys for passing around context and span within the DB scope
 var (
@@ -27,6 +55,22 @@ type OptionFunc func(c *callbacks)
 
 func (fn OptionFunc) apply(c *callbacks) {
 	fn(c)
+}
+
+//WithSpanOptions configures the db callback functions with an additional set of
+//trace.StartOptions which will be applied to each new span
+func WithSpanOptions(opts ...trace.StartOption) OptionFunc {
+	return func(c *callbacks) {
+		c.spanStartOptions = opts
+	}
+}
+
+//WithTracer configures the tracer to use when starting spans. Otherwise
+//the global tarcer is used with a default name
+func WithTracer(tracer trace.Tracer) OptionFunc {
+	return func(c *callbacks) {
+		c.tracer = tracer
+	}
 }
 
 // AllowRoot allows creating root spans in the absence of existing spans.
@@ -57,32 +101,17 @@ func (d DefaultAttributes) apply(c *callbacks) {
 	c.defaultAttributes = []core.KeyValue(d)
 }
 
-type callbacks struct {
-	//Allow otgorm to create root spans in the absence of a parent span.
-	//Default is to not allow root spans.
-	allowRoot bool
-
-	//Record the DB query as a KeyValue onto the span where the DB is called
-	query bool
-
-	//Record the table that the sql query is acting on
-	table bool
-
-	//List of default attributes to include onto the span for DB calls
-	defaultAttributes []core.KeyValue
-
-	//tracer creates spans. This is required
-	tracer trace.Tracer
-}
-
 // RegisterCallbacks registers the necessary callbacks in Gorm's hook system for instrumentation with OpenTelemetry Spans.
-func RegisterCallbacks(db *gorm.DB, t trace.Tracer, opts ...Option) {
+func RegisterCallbacks(db *gorm.DB, opts ...Option) {
 	c := &callbacks{
 		defaultAttributes: []core.KeyValue{},
-		tracer:            t,
+	}
+	defaultOpts := []Option{
+		WithTracer(global.TraceProvider().Tracer("otgorm")),
+		WithSpanOptions(trace.WithSpanKind(trace.SpanKindInternal)),
 	}
 
-	for _, opt := range opts {
+	for _, opt := range append(defaultOpts, opts...) {
 		opt.apply(c)
 	}
 
@@ -113,11 +142,15 @@ func (c *callbacks) after(scope *gorm.Scope) {
 }
 
 func (c *callbacks) startTrace(ctx context.Context, scope *gorm.Scope, operation string) context.Context {
+	//Start with configured span options
+	opts := append([]trace.StartOption{}, c.spanStartOptions...)
+
 	// There's no context but we are ok with root spans
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
+	//If there's no parent span and we don't allow root spans, return context
 	parentSpan := trace.SpanFromContext(ctx)
 	if parentSpan == nil && !c.allowRoot {
 		return ctx
@@ -129,9 +162,11 @@ func (c *callbacks) startTrace(ctx context.Context, scope *gorm.Scope, operation
 		ctx, span = c.tracer.Start(
 			context.Background(),
 			fmt.Sprintf("gorm:%s", operation),
+			opts...,
 		)
 	} else {
-		ctx, span = c.tracer.Start(ctx, fmt.Sprintf("gorm:%s", operation), trace.ChildOf(parentSpan.SpanContext()))
+		opts = append(opts, trace.ChildOf(parentSpan.SpanContext()))
+		ctx, span = c.tracer.Start(ctx, fmt.Sprintf("gorm:%s", operation), opts...)
 	}
 
 	scope.Set(spanScopeKey, span)
@@ -149,17 +184,20 @@ func (c *callbacks) endTrace(scope *gorm.Scope) {
 	if !ok {
 		return
 	}
+
+	//Apply span attributes
 	attributes := c.defaultAttributes
 
 	if c.table {
-		attributes = append(attributes, CreateSpanAttribute("gorm.table", scope.TableName()))
+		attributes = append(attributes, TableKey.String(scope.TableName()))
 	}
 
 	if c.query {
-		attributes = append(attributes, CreateSpanAttribute("gorm.query", scope.SQL))
+		attributes = append(attributes, QueryKey.String(scope.SQL))
 	}
-
 	span.SetAttributes(attributes...)
+
+	//Set StatusCode if there are any issues
 	var code codes.Code
 	if scope.HasError() {
 		err := scope.DB().Error
@@ -173,6 +211,7 @@ func (c *callbacks) endTrace(scope *gorm.Scope) {
 
 	span.SetStatus(code)
 
+	//End Span
 	span.End()
 }
 
