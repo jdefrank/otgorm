@@ -136,9 +136,9 @@ func main() {
 
 	//Register callbacks for GORM, while also passing in config Opts
 	otgorm.RegisterCallbacks(db,
-	global.TraceProvider().Tracer("component-gorm"),
-	otgorm.Query(true),
-	otgorm.AllowRoot(true)
+		otgorm.WithTracer(global.TraceProvider().Tracer("component-gorm")),
+		otgorm.Query(true),
+		otgorm.AllowRoot(true),
 	)
 
 	//Run migration and create a record
