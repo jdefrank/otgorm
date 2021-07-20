@@ -3,19 +3,20 @@ package otgorm
 import (
 	"context"
 	"fmt"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	codes2 "go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"google.golang.org/grpc/codes"
 
 	"github.com/jinzhu/gorm"
-	"go.opentelemetry.io/otel/api/core"
-	"go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/trace"
 )
 
 //Attributes that may or may not be added to a span based on Options used
 const (
-	TableKey = core.Key("gorm.table") //The table the GORM query is acting upon
-	QueryKey = core.Key("gorm.query") //The GORM query itself
+	TableKey = attribute.Key("gorm.table") //The table the GORM query is acting upon
+	QueryKey = attribute.Key("gorm.query") //The GORM query itself
 )
 
 type callbacks struct {
@@ -30,13 +31,13 @@ type callbacks struct {
 	table bool
 
 	//List of default attributes to include onto the span for DB calls
-	defaultAttributes []core.KeyValue
+	defaultAttributes []attribute.KeyValue
 
 	//tracer creates spans. This is required
 	tracer trace.Tracer
 
 	//List of default options spans will start with
-	spanStartOptions []trace.StartOption
+	spanStartOptions []trace.SpanOption
 }
 
 //Gorm scope keys for passing around context and span within the DB scope
@@ -59,7 +60,7 @@ func (fn OptionFunc) apply(c *callbacks) {
 
 //WithSpanOptions configures the db callback functions with an additional set of
 //trace.StartOptions which will be applied to each new span
-func WithSpanOptions(opts ...trace.StartOption) OptionFunc {
+func WithSpanOptions(opts ...trace.SpanOption) OptionFunc {
 	return func(c *callbacks) {
 		c.spanStartOptions = opts
 	}
@@ -95,19 +96,19 @@ func (t Table) apply(c *callbacks) {
 }
 
 // DefaultAttributes sets attributes to each span.
-type DefaultAttributes []core.KeyValue
+type DefaultAttributes []attribute.KeyValue
 
 func (d DefaultAttributes) apply(c *callbacks) {
-	c.defaultAttributes = []core.KeyValue(d)
+	c.defaultAttributes = d
 }
 
 // RegisterCallbacks registers the necessary callbacks in Gorm's hook system for instrumentation with OpenTelemetry Spans.
 func RegisterCallbacks(db *gorm.DB, opts ...Option) {
 	c := &callbacks{
-		defaultAttributes: []core.KeyValue{},
+		defaultAttributes: []attribute.KeyValue{},
 	}
 	defaultOpts := []Option{
-		WithTracer(global.TraceProvider().Tracer("otgorm")),
+		WithTracer(otel.GetTracerProvider().Tracer("otgorm")),
 		WithSpanOptions(trace.WithSpanKind(trace.SpanKindInternal)),
 	}
 
@@ -143,7 +144,7 @@ func (c *callbacks) after(scope *gorm.Scope) {
 
 func (c *callbacks) startTrace(ctx context.Context, scope *gorm.Scope, operation string) context.Context {
 	//Start with configured span options
-	opts := append([]trace.StartOption{}, c.spanStartOptions...)
+	opts := append([]trace.SpanOption{}, c.spanStartOptions...)
 
 	// There's no context but we are ok with root spans
 	if ctx == nil {
@@ -165,7 +166,6 @@ func (c *callbacks) startTrace(ctx context.Context, scope *gorm.Scope, operation
 			opts...,
 		)
 	} else {
-		opts = append(opts, trace.ChildOf(parentSpan.SpanContext()))
 		ctx, span = c.tracer.Start(ctx, fmt.Sprintf("gorm:%s", operation), opts...)
 	}
 
@@ -209,7 +209,7 @@ func (c *callbacks) endTrace(scope *gorm.Scope) {
 
 	}
 
-	span.SetStatus(code)
+	span.SetStatus(codes2.Code(code), code.String())
 
 	//End Span
 	span.End()
