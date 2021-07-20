@@ -2,6 +2,7 @@ package otgorm
 
 import (
 	"fmt"
+
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -15,7 +16,7 @@ func CreateSpanAttribute(k string, v interface{}) (kv attribute.KeyValue) {
 	case int64:
 		return attribute.Key(k).Int64(v.(int64))
 	case int32:
-		return attribute.Key(k).Int(int(v.(int32)))
+		return attribute.Key(k).Int64(int64(v.(int32)))
 	case int:
 		return attribute.Key(k).Int(v.(int))
 	case float64:
@@ -27,7 +28,7 @@ func CreateSpanAttribute(k string, v interface{}) (kv attribute.KeyValue) {
 	case uint64:
 		return attribute.Key(k).Int64(v.(int64))
 	case uint32:
-		return attribute.Key(k).Int(int(v.(int32)))
+		return attribute.Key(k).Int64(int64(v.(int32)))
 	default:
 		return attribute.Key("attribute.error").String(fmt.Sprintf("Couldn't convert %s into KeyValue", x))
 	}

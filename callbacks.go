@@ -3,6 +3,7 @@ package otgorm
 import (
 	"context"
 	"fmt"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	codes2 "go.opentelemetry.io/otel/codes"
@@ -37,7 +38,7 @@ type callbacks struct {
 	tracer trace.Tracer
 
 	//List of default options spans will start with
-	spanStartOptions []trace.SpanOption
+	spanStartOptions []trace.SpanStartOption
 }
 
 //Gorm scope keys for passing around context and span within the DB scope
@@ -60,7 +61,7 @@ func (fn OptionFunc) apply(c *callbacks) {
 
 //WithSpanOptions configures the db callback functions with an additional set of
 //trace.StartOptions which will be applied to each new span
-func WithSpanOptions(opts ...trace.SpanOption) OptionFunc {
+func WithSpanOptions(opts ...trace.SpanStartOption) OptionFunc {
 	return func(c *callbacks) {
 		c.spanStartOptions = opts
 	}
@@ -144,7 +145,7 @@ func (c *callbacks) after(scope *gorm.Scope) {
 
 func (c *callbacks) startTrace(ctx context.Context, scope *gorm.Scope, operation string) context.Context {
 	//Start with configured span options
-	opts := append([]trace.SpanOption{}, c.spanStartOptions...)
+	opts := append([]trace.SpanStartOption{}, c.spanStartOptions...)
 
 	// There's no context but we are ok with root spans
 	if ctx == nil {
