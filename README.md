@@ -1,6 +1,6 @@
-# OpenTelemetry Package for the Gorm ORM #
+# OpenTelemetry Package for the Gorm ORM V1 #
 
-This package is meant to simplify wrapping Gorm requests to databases with OpenTelemetry Tracing Spans. The functionality within the package is as of OpenTelemetry-go v0.2.1 and is subject to change fairly rapidly as the standard is evolved.
+This package is meant to simplify wrapping Gorm requests to databases with OpenTelemetry Tracing Spans. The functionality within the package is as of OpenTelemetry-go v1.0.0-RC1 and is subject to change fairly rapidly as the standard is evolved.
 
 This package is B.Y.O.E. (Bring Your Own Exporter)
 
@@ -9,8 +9,9 @@ Metrics support coming soon!
 ## Example Usage ##
 
 Make sure you have the following:
+
 - Docker
-- Go 1.13
+- Go 1.16
 - cURL or Postman for testing
 
 Run the following commands to create the testing environment:
