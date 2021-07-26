@@ -46,7 +46,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/jdefrank/otgorm"
+	"github.com/yuraxdrumz/otgorm"
 
 	"github.com/go-chi/chi"
 	"github.com/jinzhu/gorm"
